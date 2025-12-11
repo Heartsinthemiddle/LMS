@@ -23,6 +23,8 @@ public class ExternalTokenPayload {
     private final Map<String, Object> claims;
     private final String caseNumber;
     private final String gender;
+    private final Map<String,Object> child;
+    private final Map<String,Object> parent;
 
 
     public List<String> getPermissions() {

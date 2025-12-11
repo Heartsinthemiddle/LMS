@@ -10,6 +10,7 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,6 +25,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import java.io.IOException;
 import java.rmi.RemoteException;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 @Component
@@ -132,53 +134,212 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     // ------------------------------------------------------------
     // CREATE USER FOR EXTERNAL TOKEN
     // ------------------------------------------------------------
+    @Transactional
     private User createExternalUser(ExternalTokenPayload payload) {
 
-        Roles role = roleRepository.findByRole(payload.getRole().name())
+        Roles role = roleRepository.findByRole(payload.getRole())
                 .orElseThrow(() -> new RuntimeException("Role not found: " + payload.getRole().name()));
 
+        Long externalId = payload.getUserId();
+
+        // USER we will return
         User newUser = new User();
-        newUser.setId(payload.getUserId());
         newUser.setUsername(payload.getUsername());
         newUser.setEmail(payload.getEmail());
         newUser.setRoles(role);
 
-        Long externalId = payload.getUserId();
-
         switch (role.getRole()) {
 
+            // ==============================================================
+            // ===================== CHILD LOGIN ============================
+            // ==============================================================
+
             case CHILD -> {
-                Child child = new Child();
-                child.setExternalChildId(externalId);
-                child.setName(payload.getUsername());
-                child.setUserName(payload.getUsername());
-                child.setCaseNumber(payload.getCaseNumber());
-                child.setGender(payload.getGender());
+                Map<String, Object> childMap = payload.getChild();
+                Map<String, Object> parentMap = payload.getParent();
+
+                // 1️⃣ Check if CHILD already exists
+                Child child = childRepository
+                        .findByExternalChildId(externalId)
+                        .orElse(new Child());
+
+                // Always update in case external provider changed details
+                child.setExternalChildId(Long.valueOf(childMap.get("id").toString()));
+                child.setName((String) childMap.get("name"));
+                child.setUserName((String) childMap.get("userName"));
+                child.setCaseNumber((String) childMap.get("caseNumber"));
+                child.setGender((String) childMap.get("gender"));
+
+                // -------------------------------
+                // 2️⃣ Handle Parent
+                // -------------------------------
+
+                Long parentExternalId = Long.valueOf(parentMap.get("id").toString());
+                String parentUserName = (String) parentMap.get("userName");
+
+                // First check if parent *user* exists
+                User parentUser = userRepository.findByUsername(parentUserName).orElse(null);
+
+                Parent parent;
+
+                if (parentUser != null) {
+                    // Parent user exists → reuse parent
+                    parent = parentUser.getParent();
+                } else {
+                    // Parent user does NOT exist → create parent + user
+                    parent = parentRepository
+                            .findByExternalParentId(parentExternalId)
+                            .orElse(new Parent());
+
+                    parent.setExternalParentId(parentExternalId);
+                    parent.setName((String) parentMap.get("name"));
+                    parent.setUserName(parentUserName);
+                    parent.setUserEmail((String) parentMap.get("email"));
+                    parent.setGender((String) parentMap.get("gender"));
+                    parent.setParentType(
+                            ParentType.valueOf((String) parentMap.get("type"))
+                    );
+
+                    parentRepository.save(parent);
+
+                    // Create Parent User
+                    Roles parentRole = roleRepository
+                            .findByRole(Role.DECIDING_PARENT)
+                            .orElseThrow();
+
+                    parentUser = new User();
+                    parentUser.setUsername(parentUserName);
+                    parentUser.setEmail((String) parentMap.get("email"));
+                    parentUser.setRoles(parentRole);
+                    parentUser.setParent(parent);
+
+                    userRepository.save(parentUser);
+                }
+
+                // 3️⃣ Link Parent → Child
+                child.setParent(parent);
                 childRepository.save(child);
+
+                // 4️⃣ Link Child → Logging User
                 newUser.setChild(child);
             }
 
+            // ==============================================================
+            // ===================== PARENT LOGIN ===========================
+            // ==============================================================
+
             case DECIDING_PARENT, NON_DECIDING_PARENT -> {
-                Parent parent = new Parent();
-                parent.setExternalChildId(externalId);
-                parent.setName(payload.getUsername());
-                parent.setUserName(payload.getUsername());
-                parent.setUserEmail(payload.getEmail());
-                parent.setGender(payload.getGender());
-                parent.setParentType(
-                        role.getRole() == Role.DECIDING_PARENT
-                                ? ParentType.DECIDING
-                                : ParentType.NON_DECIDING
-                );
-                parentRepository.save(parent);
+
+                Map<String, Object> parentMap = payload.getParent();
+                Map<String, Object> childMap  = payload.getChild();
+
+                String parentUserName = (String) parentMap.get("userName");
+
+                // =========================================================
+                // 1️⃣ Check if PARENT USER already exists
+                // =========================================================
+                User parentUser = userRepository.findByUsername(parentUserName).orElse(null);
+
+                Parent parent;
+
+                if (parentUser != null && parentUser.getParent() != null) {
+                    // Reuse existing parent entity
+                    parent = parentUser.getParent();
+                } else {
+
+                    // =========================================================
+                    // 2️⃣ CREATE OR REUSE Parent ENTITY
+                    // =========================================================
+                    parent = parentRepository
+                            .findByExternalParentId(externalId)
+                            .orElse(new Parent());
+
+                    parent.setExternalParentId(externalId);
+                    parent.setName((String) parentMap.get("name"));
+                    parent.setUserName(parentUserName);
+                    parent.setUserEmail((String) parentMap.get("email"));
+                    parent.setGender((String) parentMap.get("gender"));
+                    parent.setParentType(
+                            role.getRole() == Role.DECIDING_PARENT
+                                    ? ParentType.DECIDING
+                                    : ParentType.NON_DECIDING
+                    );
+
+                    parentRepository.save(parent);
+
+                    // =========================================================
+                    // 3️⃣ CREATE PARENT USER IF MISSING
+                    // =========================================================
+                    if (parentUser == null) {
+
+                        Roles parentRole = roleRepository.findByRole(role.getRole())
+                                .orElseThrow(() -> new RuntimeException("Parent role missing"));
+
+                        parentUser = new User();
+                        parentUser.setUsername(parentUserName);
+                        parentUser.setEmail((String) parentMap.get("email"));
+                        parentUser.setRoles(parentRole);
+                        parentUser.setParent(parent);
+
+                        userRepository.save(parentUser);
+                    }
+                }
+
+                // =========================================================
+                // 4️⃣ HANDLE CHILD IF CLAIMS INCLUDE CHILD DATA
+                // =========================================================
+                if (childMap != null && !childMap.isEmpty()) {
+
+                    Long childExternalId = Long.valueOf(childMap.get("id").toString());
+
+                    Child child = childRepository.findByExternalChildId(childExternalId)
+                            .orElse(new Child());
+
+                    child.setExternalChildId(childExternalId);
+                    child.setName((String) childMap.get("name"));
+                    child.setUserName((String) childMap.get("userName"));
+                    child.setCaseNumber((String) childMap.get("caseNumber"));
+                    child.setGender((String) childMap.get("gender"));
+
+                    // link parent → child
+                    child.setParent(parent);
+                    childRepository.save(child);
+
+                    // =====================================================
+                    // 5️⃣ Ensure CHILD USER exists
+                    // =====================================================
+                    User childUser = userRepository.findByUsername(child.getUserName()).orElse(null);
+
+                    if (childUser == null) {
+                        Roles childRole = roleRepository.findByRole(Role.CHILD)
+                                .orElseThrow(() -> new RuntimeException("CHILD role missing"));
+
+                        childUser = new User();
+                        childUser.setUsername(child.getUserName());
+                        childUser.setEmail(null); // external may not provide
+                        childUser.setRoles(childRole);
+                        childUser.setChild(child);
+
+                        userRepository.save(childUser);
+                    }
+                }
+
+                // =========================================================
+                // 6️⃣ SET parent for the LOGGED-IN user instance
+                // =========================================================
                 newUser.setParent(parent);
             }
+
+
 
             default -> throw new RuntimeException("Unhandled external role: " + role.getRole().name());
         }
 
         return userRepository.save(newUser);
     }
+
+
+
 
     private String extractToken(HttpServletRequest request) {
         String header = request.getHeader(AUTH_HEADER);

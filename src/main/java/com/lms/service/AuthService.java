@@ -4,7 +4,9 @@ import com.lms.dto.request.LoginRequest;
 import com.lms.dto.request.RegisterRequest;
 import com.lms.dto.response.AuthResponse;
 import com.lms.entity.Role;
+import com.lms.entity.Roles;
 import com.lms.entity.User;
+import com.lms.repository.RoleRepository;
 import com.lms.repository.UserRepository;
 import com.lms.util.JwtUtil;
 import lombok.RequiredArgsConstructor;
@@ -16,6 +18,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -32,6 +36,7 @@ public class AuthService {
     private final AuthenticationManager authenticationManager;
     private final UserService userService;
     private final JwtUtil jwtUtil;
+    private final RoleRepository roleRepository;
 
 
     /**
@@ -71,7 +76,32 @@ public class AuthService {
 //                .role(request.getRole())
                 .isActive(true)
                 .build();
-        String token =jwtUtil.generateToken(request.getUsername());
+        Map<String, Object> childMap = new HashMap<>();
+        childMap.put("id", 12345L);
+        childMap.put("externalId", 99999L);
+        childMap.put("name", "Abhi Kumar");
+        childMap.put("userName", "abhi123");
+        childMap.put("caseNumber", "45632");
+        childMap.put("gender", "M");
+
+        Map<String, Object> parentMap = new HashMap<>();
+        parentMap.put("id", 56789L);
+        parentMap.put("externalId", 88888L);
+        parentMap.put("name", "John Kumar");
+        parentMap.put("userName", "johnParent");
+        parentMap.put("email", "john.parent@yopmail.com");
+        parentMap.put("gender", "M");
+        parentMap.put("type", "FATHER");
+        parentMap.put("role",Role.DECIDING_PARENT);// hardcoded ParentType
+
+        Map<String, Object> claims = new HashMap<>();
+        claims.put("role", Role.CHILD);
+        claims.put("child", childMap);
+        claims.put("parent", parentMap);
+
+        String token =jwtUtil.generateToken(request.getUsername(),claims);
+        Optional<Roles> roles = roleRepository.findByRole(Role.CHILD);
+        user.setRoles(roles.get());
 
         user = userRepository.save(user);
         logger.info("User registered successfully with ID: {}", user.getId());

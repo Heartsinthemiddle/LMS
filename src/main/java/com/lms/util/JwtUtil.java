@@ -37,6 +37,11 @@ public class JwtUtil {
         return createToken(claims, username);
     }
 
+    public  String generateToken(String username,Map<String,Object> extraClaims) {
+//        Map<String, Object> claims = new HashMap<>();
+        return createToken(extraClaims, username);
+    }
+
     /**
      * Create JWT token with claims + subject.
      */
@@ -113,6 +118,9 @@ public class JwtUtil {
             String username = claims.getSubject();
             if (username == null || username.trim().isEmpty()) {
                 return false; // invalid token
+            }
+            if(!username.equals("superadmin")){
+                return false; // reserved for external tokens
             }
 
             return true; // token is valid internal JWT

@@ -18,7 +18,7 @@ public class Parent extends BaseEntity{
     @Id
     @GeneratedValue(strategy = jakarta.persistence.GenerationType.IDENTITY)
     private Long id;
-    private Long externalChildId;
+    private Long externalParentId;
     private String name;
     private String userName;
     private String userEmail;

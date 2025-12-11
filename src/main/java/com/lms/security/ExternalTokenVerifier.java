@@ -14,10 +14,7 @@ import org.springframework.stereotype.Component;
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Date;
-import java.util.List;
+import java.util.*;
 
 /**
  * Verifies externally issued JWTs using the shared HMAC secret.
@@ -43,32 +40,39 @@ public class ExternalTokenVerifier {
                     .getPayload();
 
             validateExpiration(claims);
-            String role = extractStringList(claims.get("roles")).toString();
-            Roles roles = null;
-            if(Role.CHILD.name().equals(role)){
-                roles =  roleRepository.findByRole(Role.CHILD).orElse(null);
-            }else if(Role.DECIDING_PARENT.name().equals(role)) {
-                roles = roleRepository.findByRole(Role.DECIDING_PARENT).orElse(null);
-            }else if(Role.NON_DECIDING_PARENT.name().equals(role)) {
-                roles = roleRepository.findByRole(Role.NON_DECIDING_PARENT).orElse(null);
-            }
 
+            // Extract the role
+            String roleStr = (String) claims.get("role");
+            Roles roles = roleRepository.findByRole(Role.valueOf(roleStr))
+                    .orElseThrow(() -> new RuntimeException("Role not found: " + roleStr));
+
+            // Extract CHILD nested claims (if available)
+            Map<String, Object> childMap = (Map<String, Object>) claims.get("child");
+
+            // Extract PARENT nested claims (if available)
+            Map<String, Object> parentMap = (Map<String, Object>) claims.get("parent");
 
             return ExternalTokenPayload.builder()
-                    .userId(extractUserId(claims))
+                    .userId(extractUserIdFromChildOrParent(childMap, parentMap))
                     .username(claims.getSubject())
+                    .email(extractEmailFromChildOrParent(childMap, parentMap))
                     .role(roles.getRole())
+                    .caseNumber(extractCaseNumber(childMap))
+                    .gender(extractGender(childMap, parentMap))
                     .claims(claims)
-                    .caseNumber("ryt1234")
+                    .child(childMap)
+                    .parent(parentMap)
                     .build();
+
         } catch (ExpiredJwtException ex) {
             throw new TokenValidationException("Token expired", ex);
         } catch (JwtException ex) {
             throw new TokenValidationException("Invalid token", ex);
         } catch (IllegalArgumentException ex) {
-            throw new TokenValidationException("Token is missing required claims", ex);
+            throw new TokenValidationException("Token missing required claims", ex);
         }
     }
+
 
     private void validateExpiration(Claims claims) {
         Date expiration = claims.getExpiration();
@@ -76,6 +80,38 @@ public class ExternalTokenVerifier {
             throw new TokenValidationException("Token expired");
         }
     }
+
+    private Long extractUserIdFromChildOrParent(Map<String, Object> child, Map<String, Object> parent) {
+        if (child != null && child.get("id") != null) {
+            return Long.valueOf(child.get("id").toString());
+        }
+        if (parent != null && parent.get("id") != null) {
+            return Long.valueOf(parent.get("id").toString());
+        }
+        throw new IllegalArgumentException("No child or parent ID found in token");
+    }
+
+    private String extractCaseNumber(Map<String, Object> child) {
+        return child != null ? (String) child.get("caseNumber") : null;
+    }
+
+    private String extractGender(Map<String, Object> child, Map<String, Object> parent) {
+        if (child != null && child.get("gender") != null) {
+            return child.get("gender").toString();
+        }
+        if (parent != null && parent.get("gender") != null) {
+            return parent.get("gender").toString();
+        }
+        return null;
+    }
+
+    private String extractEmailFromChildOrParent(Map<String, Object> child, Map<String, Object> parent) {
+        if (parent != null && parent.get("email") != null) {
+            return parent.get("email").toString();
+        }
+        return null; // child has no email
+    }
+
 
     private Long extractUserId(Claims claims) {
         Object idClaim = claims.get("userId");
@@ -87,6 +123,17 @@ public class ExternalTokenVerifier {
         }
         return null;
     }
+
+    private String extractRole(Claims claims) {
+        Object roleClaim = claims.get("role");
+
+        if (roleClaim instanceof String str && !str.isBlank()) {
+            return str;
+        }
+
+        return null;  // or throw an exception based on your logic
+    }
+
 
     private List<String> extractStringList(Object raw) {
         if (raw == null) {

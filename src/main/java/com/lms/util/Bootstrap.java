@@ -13,6 +13,7 @@ import org.springframework.boot.CommandLineRunner;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
 import java.util.Set;
 
 @Slf4j
@@ -43,6 +44,7 @@ public class Bootstrap implements CommandLineRunner {
 
         // 3️⃣ Create Default Super Admin User
         createSuperAdmin(superAdminRole);
+        saveRoles("Full system access", allPermissions);
 
         log.info("---- LMS Bootstrap Initialization Completed ----");
     }
@@ -97,6 +99,36 @@ public class Bootstrap implements CommandLineRunner {
 
         userRepository.save(superAdmin);
         log.info("Super Admin user created successfully: {}", email);
+    }
+
+    private void saveRoles(String description, Set<Permissions> permissions) {
+        List<Roles> rolesList1 = roleRepository.findAll();
+        List<String> roleNames = rolesList1.stream()
+                .map(role -> role.getRole().name())
+                .toList();
+        if (!rolesList1.isEmpty() && !roleNames.contains(Role.CHILD.name())
+                && !roleNames.contains(Role.DECIDING_PARENT.name())
+                && !roleNames.contains(Role.NON_DECIDING_PARENT.name())) {
+            List<Roles> rolesList = List.of(
+                    Roles.builder()
+                            .role(Role.CHILD)
+                            .description(description)
+                            .permissions(permissions)
+                            .build(),
+                    Roles.builder()
+                            .role(Role.DECIDING_PARENT)
+                            .description(description)
+                            .permissions(permissions)
+                            .build(),
+                    Roles.builder()
+                            .role(Role.NON_DECIDING_PARENT)
+                            .description(description)
+                            .permissions(permissions)
+                            .build()
+            );
+            roleRepository.saveAll(rolesList);
+
+        }
     }
 
 
