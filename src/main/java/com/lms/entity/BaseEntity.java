@@ -8,19 +8,17 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.LocalDateTime;
-import java.util.UUID;
 
 /**
  * Base entity class providing common fields for all entities.
  * This class includes audit fields (createdAt, updatedAt, createdBy, updatedBy, deletedBy, deletedAt)
- * and a UUID primary key. Other entity classes should extend this class to inherit these common fields.
+ * and a soft delete flag. Other entity classes should extend this class to inherit these common fields.
  */
 @MappedSuperclass
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 public abstract class BaseEntity {
-
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
@@ -43,5 +41,5 @@ public abstract class BaseEntity {
     protected String deletedBy;
 
     @Column(name = "is_deleted", nullable = false)
-    protected boolean isDeleted = false;
+    protected Boolean isDeleted = false;
 }

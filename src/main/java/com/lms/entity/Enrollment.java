@@ -20,7 +20,7 @@ public class Enrollment {
 
     @ManyToOne
     @JoinColumn(name = "child_id", nullable = false)
-    private User child;
+    private Child child;
 
     @ManyToOne
     @JoinColumn(name = "course_id", nullable = false)

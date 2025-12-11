@@ -1,11 +1,7 @@
 package com.lms.entity;
 
 import jakarta.persistence.*;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
-import lombok.EqualsAndHashCode;
+import lombok.*;
 
 
 @Entity
@@ -13,7 +9,7 @@ import lombok.EqualsAndHashCode;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-@Builder
+@EqualsAndHashCode(callSuper = true)
 public class Course extends BaseEntity{
 
     @Id
@@ -24,9 +20,16 @@ public class Course extends BaseEntity{
     private String description;
     private String category;
 
+    private String videoUrl;     // The actual video file (S3 / Cloudflare / Video CDN)
+
+    @Column(name = "duration_seconds")
+    private Integer durationSeconds;
+
+
     @Column(name = "is_active")
     private Boolean isActive;
 
-
+    @ManyToOne
+    @JoinColumn(name = "course_package_id", nullable = false)
+    private CoursePackage coursePackage;
 }
-

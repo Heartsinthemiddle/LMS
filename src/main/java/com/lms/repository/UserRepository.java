@@ -1,6 +1,7 @@
 package com.lms.repository;
 
 import com.lms.entity.User;
+import jakarta.validation.constraints.NotNull;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
@@ -54,5 +55,7 @@ public interface UserRepository extends JpaRepository<User, UUID> {
      * @return Optional containing the user if found
      */
     Optional<User> findByUsernameOrEmail(String username, String email);
+
+    Optional<User> findById(@NotNull(message = "User ID is required") Long userId);
 }
 
