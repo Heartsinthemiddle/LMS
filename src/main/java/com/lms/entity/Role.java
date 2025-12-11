@@ -7,7 +7,8 @@ package com.lms.entity;
  */
 public enum Role {
     ADMIN,
-    PARENT,
+    DECIDING_PARENT,
+    NON_DECIDING_PARENT,
     CHILD
 }
 

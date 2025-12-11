@@ -50,7 +50,7 @@ public class UserService implements UserDetailsService {
         return org.springframework.security.core.userdetails.User.builder()
                 .username(user.getUsername())
                 .password(user.getPassword())
-                .authorities(user.getRole().name())
+                .authorities(user.getRoles().getRole().name())
                 .build();
     }
 
@@ -79,7 +79,7 @@ public class UserService implements UserDetailsService {
         return org.springframework.security.core.userdetails.User.builder()
                 .username(user.getUsername())
                 .password(user.getPassword())
-                .authorities(user.getRole().name())
+                .authorities(user.getRoles().getRole().name())
                 .build();
     }
 
@@ -108,7 +108,7 @@ public class UserService implements UserDetailsService {
         return org.springframework.security.core.userdetails.User.builder()
                 .username(user.getUsername())
                 .password(user.getPassword())
-                .authorities(user.getRole().name())
+                .authorities(user.getRoles().getRole().name())
                 .build();
     }
 

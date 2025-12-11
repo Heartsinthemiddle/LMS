@@ -4,7 +4,6 @@ import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
@@ -16,7 +15,7 @@ import java.util.function.Function;
 
 /**
  * Utility class for JWT token operations.
- * Handles token generation, validation, and extraction of claims.
+ * Provides helper methods to extract and generate JWTs.
  */
 @Component
 public class JwtUtil {
@@ -24,14 +23,38 @@ public class JwtUtil {
     @Value("${jwt.secret}")
     private String secret;
 
-    @Value("${jwt.expiration}")
-    private Long expiration;
+    // Token expiration: 10 hours (example)
+    private static final long JWT_EXPIRATION = 10 * 60 * 60 * 1000;
+
+    /**
+     * Generate a JWT token using username.
+     *
+     * @param username the username to set in token's subject
+     * @return generated JWT token
+     */
+    public  String generateToken(String username) {
+        Map<String, Object> claims = new HashMap<>();
+        return createToken(claims, username);
+    }
+
+    /**
+     * Create JWT token with claims + subject.
+     */
+    private  String createToken(Map<String, Object> claims, String subject) {
+
+        long now = System.currentTimeMillis();
+
+        return Jwts.builder()
+                .claims(claims)
+                .subject(subject)
+                .issuedAt(new Date(now))
+                .expiration(new Date(now + JWT_EXPIRATION))
+                .signWith(getSigningKey()) // automatically uses HS256
+                .compact();
+    }
 
     /**
      * Extract username from token.
-     * 
-     * @param token the JWT token
-     * @return username extracted from token
      */
     public String extractUsername(String token) {
         return extractClaim(token, Claims::getSubject);
@@ -39,9 +62,6 @@ public class JwtUtil {
 
     /**
      * Extract expiration date from token.
-     * 
-     * @param token the JWT token
-     * @return expiration date
      */
     public Date extractExpiration(String token) {
         return extractClaim(token, Claims::getExpiration);
@@ -49,10 +69,6 @@ public class JwtUtil {
 
     /**
      * Extract a specific claim from token.
-     * 
-     * @param token the JWT token
-     * @param claimsResolver function to extract the claim
-     * @return the extracted claim value
      */
     public <T> T extractClaim(String token, Function<Claims, T> claimsResolver) {
         final Claims claims = extractAllClaims(token);
@@ -61,9 +77,6 @@ public class JwtUtil {
 
     /**
      * Extract all claims from token.
-     * 
-     * @param token the JWT token
-     * @return all claims
      */
     private Claims extractAllClaims(String token) {
         return Jwts.parser()
@@ -74,74 +87,40 @@ public class JwtUtil {
     }
 
     /**
-     * Check if token is expired.
-     * 
-     * @param token the JWT token
-     * @return true if token is expired, false otherwise
-     */
-    private Boolean isTokenExpired(String token) {
-        return extractExpiration(token).before(new Date());
-    }
-
-    /**
-     * Generate token for user.
-     * 
-     * @param userDetails the user details
-     * @return generated JWT token
-     */
-    public String generateToken(UserDetails userDetails) {
-        Map<String, Object> claims = new HashMap<>();
-        return createToken(claims, userDetails.getUsername());
-    }
-
-    /**
-     * Generate token with custom claims.
-     * 
-     * @param claims custom claims to include in token
-     * @param subject the subject (username)
-     * @return generated JWT token
-     */
-    public String generateToken(Map<String, Object> claims, String subject) {
-        return createToken(claims, subject);
-    }
-
-    /**
-     * Create JWT token with claims and subject.
-     * 
-     * @param claims the claims to include
-     * @param subject the subject (username)
-     * @return created JWT token
-     */
-    private String createToken(Map<String, Object> claims, String subject) {
-        return Jwts.builder()
-                .claims(claims)
-                .subject(subject)
-                .issuedAt(new Date(System.currentTimeMillis()))
-                .expiration(new Date(System.currentTimeMillis() + expiration))
-                .signWith(getSigningKey())
-                .compact();
-    }
-
-    /**
-     * Validate token against user details.
-     * 
-     * @param token the JWT token
-     * @param userDetails the user details to validate against
-     * @return true if token is valid, false otherwise
-     */
-    public Boolean validateToken(String token, UserDetails userDetails) {
-        final String username = extractUsername(token);
-        return (username.equals(userDetails.getUsername()) && !isTokenExpired(token));
-    }
-
-    /**
      * Get signing key from secret.
-     * 
-     * @return SecretKey for signing tokens
      */
     private SecretKey getSigningKey() {
         byte[] keyBytes = secret.getBytes(StandardCharsets.UTF_8);
         return Keys.hmacShaKeyFor(keyBytes);
     }
-}
 
+    public boolean isValidInternalToken(String token) {
+        try {
+            // 1. Parse and validate signature
+            Claims claims = Jwts.parser()
+                    .verifyWith(getSigningKey())
+                    .build()
+                    .parseSignedClaims(token)
+                    .getPayload();
+
+            // 2. Validate expiration
+            Date expiration = claims.getExpiration();
+            if (expiration.before(new Date())) {
+                return false; // token expired
+            }
+
+            // 3. Validate username (subject)
+            String username = claims.getSubject();
+            if (username == null || username.trim().isEmpty()) {
+                return false; // invalid token
+            }
+
+            return true; // token is valid internal JWT
+
+        } catch (Exception ex) {
+            // Any signature / parsing error → invalid token
+            return false;
+        }
+    }
+
+}

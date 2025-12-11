@@ -32,7 +32,7 @@ public class AuthController {
     private final AuthService authService;
 
     /**
-     * Register a new user.
+     * Register a new user (token is provided by external IdP).
      * 
      * @param request the registration request
      * @return ResponseEntity with AuthResponse
@@ -40,7 +40,7 @@ public class AuthController {
     @Operation(
             summary = "Register a new user",
             description = "Register a new user with username, email, password, and role. " +
-                    "Username and email must be unique. Password must meet security requirements."
+                    "Username and email must be unique. Token issuance is handled by the external identity provider."
     )
     @ApiResponses(value = {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
@@ -65,15 +65,14 @@ public class AuthController {
     }
 
     /**
-     * Authenticate user and return JWT token.
+     * Authenticate user credentials (external service issues the token).
      * 
      * @param request the login request
      * @return ResponseEntity with AuthResponse
      */
     @Operation(
             summary = "User login",
-            description = "Authenticate user with username/email and password. " +
-                    "Returns JWT token upon successful authentication."
+            description = "Authenticate user with username/email and password. Token issuance is handled by the external identity provider."
     )
     @ApiResponses(value = {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(

@@ -10,14 +10,13 @@ import com.lms.util.JwtUtil;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.authentication.BadCredentialsException;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.authentication.*;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.Optional;
 
 /**
  * Service class for authentication operations.
@@ -30,9 +29,10 @@ public class AuthService {
     private static final Logger logger = LoggerFactory.getLogger(AuthService.class);
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
-    private final JwtUtil jwtUtil;
     private final AuthenticationManager authenticationManager;
     private final UserService userService;
+    private final JwtUtil jwtUtil;
+
 
     /**
      * Register a new user.
@@ -68,24 +68,20 @@ public class AuthService {
                 .username(request.getUsername())
                 .email(request.getEmail())
                 .password(passwordEncoder.encode(request.getPassword()))
-                .role(request.getRole())
+//                .role(request.getRole())
                 .isActive(true)
                 .build();
+        String token =jwtUtil.generateToken(request.getUsername());
 
         user = userRepository.save(user);
         logger.info("User registered successfully with ID: {}", user.getId());
 
-        // Generate JWT token
-        UserDetails userDetails = userService.loadUserByUsername(user.getUsername());
-        String token = jwtUtil.generateToken(userDetails);
-
         return AuthResponse.builder()
-                .token(token)
-                .tokenType("Bearer")
                 .id(user.getId())
                 .username(user.getUsername())
                 .email(user.getEmail())
-                .role(user.getRole())
+//                .role(user.getRole())
+                .token(token)
                 .build();
     }
 
@@ -96,46 +92,60 @@ public class AuthService {
      * @return AuthResponse with token and user details
      * @throws BadCredentialsException if credentials are invalid
      */
-    @Transactional(readOnly = true)
+    @Transactional
     public AuthResponse login(LoginRequest request) {
         logger.info("Attempting to login user: {}", request.getUsernameOrEmail());
 
         try {
             // Authenticate user
-            Authentication authentication = authenticationManager.authenticate(
+            Authentication auth = authenticationManager.authenticate(
                     new UsernamePasswordAuthenticationToken(
                             request.getUsernameOrEmail(),
                             request.getPassword()
                     )
             );
 
-            // Load user details
-            UserDetails userDetails = userService.loadUserByUsernameOrEmail(request.getUsernameOrEmail());
-            
-            // Get user entity for response
-            User user = userRepository.findByUsernameOrEmail(
-                    request.getUsernameOrEmail(), 
-                    request.getUsernameOrEmail()
-            ).orElseThrow(() -> new BadCredentialsException("Invalid credentials"));
+            // Extract authenticated user details
+
+            Optional<User> user = userRepository.findByUsername(request.getUsernameOrEmail());
+            if (user.isEmpty()) {
+                user = userRepository.findByEmail(request.getUsernameOrEmail());
+            }
+            if (!user.isPresent()){
+                logger.warn("Login failed: User not found - {}", request.getUsernameOrEmail());
+                throw new BadCredentialsException("Invalid username/email or password");
+            }
 
             // Generate JWT token
-            String token = jwtUtil.generateToken(userDetails);
+            String jwtToken = jwtUtil.generateToken(request.getUsernameOrEmail());
 
-            logger.info("User logged in successfully: {}", user.getUsername());
+            logger.info("User logged in successfully: {}", request.getUsernameOrEmail());
 
             return AuthResponse.builder()
-                    .token(token)
-                    .tokenType("Bearer")
-                    .id(user.getId())
-                    .username(user.getUsername())
-                    .email(user.getEmail())
-                    .role(user.getRole())
+                    .id(user.get().getId())
+                    .username(user.get().getUsername())
+                    .email(user.get().getEmail())
+
+                    // adjust if user.getRoles() is a list
+                    .role(user.get().getRoles().getRole())
+
+                    .token(jwtToken)
                     .build();
 
         } catch (BadCredentialsException e) {
             logger.warn("Login failed: Invalid credentials for user: {}", request.getUsernameOrEmail());
-            throw new BadCredentialsException("Invalid username/email or password", e);
+            throw new BadCredentialsException("Invalid username/email or password");
+        } catch (LockedException e) {
+            logger.warn("User account is locked: {}", request.getUsernameOrEmail());
+            throw new LockedException("Your account is locked");
+        } catch (DisabledException e) {
+            logger.warn("User account is disabled: {}", request.getUsernameOrEmail());
+            throw new DisabledException("Your account is disabled");
+        } catch (CredentialsExpiredException e) {
+            logger.warn("Credentials expired for user: {}", request.getUsernameOrEmail());
+            throw new CredentialsExpiredException("Your password has expired");
         }
     }
+
 }
 

@@ -1,5 +1,7 @@
 package com.lms.security;
 
+import com.lms.config.CustomAccessDeniedHandler;
+import com.lms.config.CustomAuthenticationEntryPoint;
 import com.lms.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
@@ -26,28 +28,36 @@ public class SecurityConfig {
 
     private final UserService userService;
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final CustomAuthenticationEntryPoint customAuthenticationEntryPoint;
+    private final CustomAccessDeniedHandler customAccessDeniedHandler;
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
 
         http
-                .csrf(AbstractHttpConfigurer::disable)
+                .csrf(AbstractHttpConfigurer::disable).exceptionHandling(ex -> ex
+                        .authenticationEntryPoint(customAuthenticationEntryPoint)
+                        .accessDeniedHandler(customAccessDeniedHandler)
+                )
 
                 .authorizeHttpRequests(auth -> auth
-                        // Public endpoints
-                        .requestMatchers("/api/v1/auth/register", "/api/v1/auth/login").permitAll()
-                        .requestMatchers(
-                                "/swagger-ui/**",
-                                "/v3/api-docs/**",
-                                "/swagger-ui.html",
-                                "/swagger-resources/**",
-                                "/webjars/**"
-                        ).permitAll().requestMatchers("/error").permitAll()   // <-- FIX
+                .requestMatchers("/api/v1/auth/register","/api/v1/auth/login").permitAll()
+                .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/swagger-resources/**", "/webjars/**").permitAll()
+                .requestMatchers("/error").permitAll()
 
+                // Admin-only endpoints
+                .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
+                .requestMatchers("/api/v1/roles/**").hasRole("CHILD")  // ⭐ ADD THIS
 
-                        // All other endpoints require JWT — but no RBAC
-                        .anyRequest().authenticated()
-                )
+                // Parent
+                .requestMatchers("/api/v1/parent/**").hasAnyRole("ADMIN", "PARENT")
+
+                // Child
+                .requestMatchers("/api/v1/child/**").hasAnyRole("ADMIN", "CHILD")
+
+                // All others must be authenticated
+                .anyRequest().authenticated()
+        )
 
                 .sessionManagement(session ->
                         session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
