@@ -134,19 +134,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     // ------------------------------------------------------------
     // CREATE USER FOR EXTERNAL TOKEN
     // ------------------------------------------------------------
-    @Transactional
     private User createExternalUser(ExternalTokenPayload payload) {
 
         Roles role = roleRepository.findByRole(payload.getRole())
                 .orElseThrow(() -> new RuntimeException("Role not found: " + payload.getRole().name()));
 
-        Long externalId = payload.getUserId();
 
-        // USER we will return
-        User newUser = new User();
-        newUser.setUsername(payload.getUsername());
-        newUser.setEmail(payload.getEmail());
-        newUser.setRoles(role);
 
         switch (role.getRole()) {
 
@@ -155,12 +148,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             // ==============================================================
 
             case CHILD -> {
+
+                // USER we will return
+
                 Map<String, Object> childMap = payload.getChild();
                 Map<String, Object> parentMap = payload.getParent();
 
                 // 1️⃣ Check if CHILD already exists
                 Child child = childRepository
-                        .findByExternalChildId(externalId)
+                        .findByExternalChildId(Long.valueOf(childMap.get("id").toString()))
                         .orElse(new Child());
 
                 // Always update in case external provider changed details
@@ -196,9 +192,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     parent.setUserName(parentUserName);
                     parent.setUserEmail((String) parentMap.get("email"));
                     parent.setGender((String) parentMap.get("gender"));
-                    parent.setParentType(
-                            ParentType.valueOf((String) parentMap.get("type"))
-                    );
+                    String parentTypeStr = (String) parentMap.get("type");
+                    if ("NON_DECIDING".equalsIgnoreCase(parentTypeStr)) {
+                        parent.setParentType(ParentType.NON_DECIDING);
+                    } else {
+                        parent.setParentType(
+                                ParentType.DECIDING
+                        );
+                    }
 
                     parentRepository.save(parent);
 
@@ -216,12 +217,19 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     userRepository.save(parentUser);
                 }
 
+
                 // 3️⃣ Link Parent → Child
                 child.setParent(parent);
                 childRepository.save(child);
+                User childUser = new User();
+                childUser.setUsername(childMap.get("userName").toString());
+                childUser.setEmail(null);
+                childUser.setRoles(role);
 
                 // 4️⃣ Link Child → Logging User
-                newUser.setChild(child);
+                childUser.setChild(child);
+                userRepository.save(childUser);
+                return childUser;
             }
 
             // ==============================================================
@@ -251,10 +259,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     // 2️⃣ CREATE OR REUSE Parent ENTITY
                     // =========================================================
                     parent = parentRepository
-                            .findByExternalParentId(externalId)
+                            .findByExternalParentId(Long.valueOf(parentMap.get("id").toString()))
                             .orElse(new Parent());
 
-                    parent.setExternalParentId(externalId);
+                    parent.setExternalParentId(Long.valueOf(parentMap.get("id").toString()));
                     parent.setName((String) parentMap.get("name"));
                     parent.setUserName(parentUserName);
                     parent.setUserEmail((String) parentMap.get("email"));
@@ -327,15 +335,16 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 // =========================================================
                 // 6️⃣ SET parent for the LOGGED-IN user instance
                 // =========================================================
-                newUser.setParent(parent);
+               return parentUser;
             }
 
 
 
-            default -> throw new RuntimeException("Unhandled external role: " + role.getRole().name());
+            default -> {
+                return null;
+            }
         }
 
-        return userRepository.save(newUser);
     }
 
 

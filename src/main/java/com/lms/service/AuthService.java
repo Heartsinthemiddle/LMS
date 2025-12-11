@@ -91,7 +91,7 @@ public class AuthService {
         parentMap.put("userName", "johnParent");
         parentMap.put("email", "john.parent@yopmail.com");
         parentMap.put("gender", "M");
-        parentMap.put("type", "FATHER");
+        parentMap.put("type", "DECIDING_PARENT");
         parentMap.put("role",Role.DECIDING_PARENT);// hardcoded ParentType
 
         Map<String, Object> claims = new HashMap<>();
