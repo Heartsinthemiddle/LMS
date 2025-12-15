@@ -48,8 +48,9 @@ public class CoursePackageService {
         coursePackage.setIsActive(req.getIsActive() != null ? req.getIsActive() : true);
         coursePackage.setIsDeleted(false);
         coursePackage.setCreatedBy(getCurrentUser());
+        coursePackageRepository.save(coursePackage);
 
-        return map(coursePackageRepository.save(coursePackage));
+        return map(coursePackage);
     }
 
     /**

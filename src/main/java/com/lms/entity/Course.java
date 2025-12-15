@@ -32,4 +32,8 @@ public class Course extends BaseEntity{
     @ManyToOne
     @JoinColumn(name = "course_package_id", nullable = false)
     private CoursePackage coursePackage;
+
+    private String scormCourseId;     // Rustici SCORM Cloud Course ID
+    private String scormLaunchUrl;    // Rustici launch link returned by API
+    private Boolean isScorm;
 }

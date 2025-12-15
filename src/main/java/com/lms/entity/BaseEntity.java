@@ -24,20 +24,20 @@ public abstract class BaseEntity {
     @Column(name = "created_at", nullable = false, updatable = false)
     protected LocalDateTime createdAt;
 
-    @Column(name = "created_by", length = 100)
+    @Column(name = "created_by", length = 500)
     protected String createdBy;
 
     @UpdateTimestamp
     @Column(name = "updated_at", nullable = false)
     protected LocalDateTime updatedAt;
 
-    @Column(name = "updated_by", length = 100)
+    @Column(name = "updated_by", length = 500)
     protected String updatedBy;
 
     @Column(name = "deleted_at")
     protected LocalDateTime deletedAt;
 
-    @Column(name = "deleted_by", length = 100)
+    @Column(name = "deleted_by", length = 500)
     protected String deletedBy;
 
     @Column(name = "is_deleted", nullable = false)

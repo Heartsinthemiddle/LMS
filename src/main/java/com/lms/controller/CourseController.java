@@ -1,20 +1,34 @@
 package com.lms.controller;
 
 import com.lms.dto.request.CreateCourseRequest;
+import com.lms.dto.request.ScormUploadRequest;
 import com.lms.dto.request.UpdateCourseRequest;
 import com.lms.dto.response.ApiResponse;
 import com.lms.dto.response.CourseResponse;
+import com.lms.dto.response.ImportJobStatus;
+import com.lms.entity.Course;
+import com.lms.repository.CourseRepository;
 import com.lms.service.CourseService;
+import com.lms.service.RusticiClient;
 import io.swagger.v3.oas.annotations.*;
 import io.swagger.v3.oas.annotations.media.*;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.*;
+import org.springframework.http.codec.multipart.FilePart;
 import org.springframework.web.bind.annotation.*;
 
 import jakarta.validation.Valid;
+import org.springframework.web.multipart.MultipartFile;
+import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
+
+import java.io.IOException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
 
 @Slf4j
@@ -26,6 +40,8 @@ import java.util.List;
 public class CourseController {
 
     private final CourseService courseService;
+    private final CourseRepository courseRepository;
+    private final RusticiClient rusticiClient;
 
     @PostMapping
     public ResponseEntity<ApiResponse<CourseResponse>> createCourse(
@@ -70,4 +86,65 @@ public class CourseController {
         CourseResponse course = courseService.restoreCourse(id);
         return ResponseEntity.ok(ApiResponse.success("Course restored", course));
     }
+
+    @Operation(
+            summary = "Upload SCORM ZIP",
+            description = "Uploads a SCORM package to Rustici Cloud and returns updated course info."
+    )
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "SCORM uploaded successfully"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Invalid request"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "Course not found")
+    })
+    @PostMapping(
+            value = "/{id}/scorm",
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE
+    )
+    public ResponseEntity<Course> uploadScorm(
+            @PathVariable Long id,
+            @RequestParam("file") MultipartFile file
+    ) throws IOException, InterruptedException {
+
+        Course course = courseRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Course not found"));
+
+        // Upload SCORM (async job)
+        java.lang.String courseId = "lms-course-7" + course.getId();
+        String importJobId = rusticiClient
+                .uploadScormZip(file,courseId)
+                .subscribeOn(Schedulers.boundedElastic())
+                .block();
+
+        ImportJobStatus status;
+        do {
+            status = rusticiClient.getImportJobStatus(importJobId)
+                    .block();
+            Thread.sleep(1000); // wait 1 second
+        } while (!"COMPLETE".equalsIgnoreCase(status.getStatus()));
+
+        String scormCourseId = status.getCourseId(); // get actual course ID
+        String launchUrl = rusticiClient.buildLaunchUrl(scormCourseId,"learner_" + courseId );
+
+        // Fetch launch URL
+//        String launchUrl = rusticiClient
+//                .getLaunchUrl(scormCourseId, "learner_" + id)
+//                .subscribeOn(Schedulers.boundedElastic())
+//                .block();
+
+        course.setIsScorm(true);
+        course.setScormCourseId(scormCourseId);
+        course.setScormLaunchUrl(launchUrl);
+
+        courseRepository.save(course);
+
+        return ResponseEntity.ok(course);
+    }
+
+
+
+
+
+
+
+
 }
