@@ -47,7 +47,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/v1/auth/register","/api/v1/auth/login").permitAll()
                 .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/swagger-resources/**", "/webjars/**").permitAll()
-                .requestMatchers("/error").permitAll()
+                .requestMatchers("/error","/course", "/api/v1/video-message","/test/**","/scorm-content/**","/api/v1/scorm").permitAll()
 
                 // Admin-only endpoints
                 .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")

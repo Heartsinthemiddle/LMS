@@ -100,6 +100,8 @@ public interface EnrollmentRepository extends JpaRepository<Enrollment, Long> {
      * @return count of completed enrollments
      */
     long countByChildAndIsCompletedTrue(User child);
+    @Query(value = "select * from enrollments where id =8",nativeQuery = true)
+    Enrollment findBYExactId(Long id);
 
     /**
      * Check if a child is already enrolled in a course
@@ -109,6 +111,8 @@ public interface EnrollmentRepository extends JpaRepository<Enrollment, Long> {
      * @return true if child is enrolled
      */
     boolean existsByChildAndCourse(User child, Course course);
+
+    Optional<Enrollment> findByIdAndCourseIdAndIsDeletedFalse(Long enrollmentId, Long courseId);
 
     /**
      * Find all non-deleted enrollments for a child
