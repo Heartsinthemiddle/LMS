@@ -57,5 +57,7 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     Optional<User> findByUsernameOrEmail(String username, String email);
 
     Optional<User> findById(@NotNull(message = "User ID is required") Long userId);
+
+    Optional<User> findByParentId(Long id);
 }
 
