@@ -29,12 +29,9 @@ public class Course extends BaseEntity{
     @Column(name = "is_active")
     private Boolean isActive;
 
-    @ManyToOne(optional = true)
-    @JoinColumn(name = "course_package_id", nullable = true)
+    @ManyToOne
+    @JoinColumn(name = "course_package_id", nullable = false)
     private CoursePackage coursePackage;
-
-    @Enumerated(EnumType.STRING)
-    private CourseType courseType;  // VIDEO, SCORM, etc.
 
     private String scormCourseId;     // Rustici SCORM Cloud Course ID
     private String scormLaunchUrl;    // Rustici launch link returned by API

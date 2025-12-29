@@ -3,9 +3,13 @@ package com.lms.service;
 import com.lms.dto.request.CreateUserSubscriptionRequest;
 import com.lms.dto.request.UpdateUserSubscriptionRequest;
 import com.lms.dto.response.UserSubscriptionResponse;
-import com.lms.entity.*;
+import com.lms.entity.SubscriptionPlan;
+import com.lms.entity.User;
+import com.lms.entity.UserSubscription;
 import com.lms.exception.ResourceNotFoundException;
-import com.lms.repository.*;
+import com.lms.repository.SubscriptionPlanRepository;
+import com.lms.repository.UserRepository;
+import com.lms.repository.UserSubscriptionRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.Authentication;
@@ -16,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -30,12 +35,6 @@ public class UserSubscriptionService {
     private final UserSubscriptionRepository userSubscriptionRepository;
     private final UserRepository userRepository;
     private final SubscriptionPlanRepository subscriptionPlanRepository;
-    private final CoursePackageRepository coursePackageRepository;
-    private final CourseRepository courseRepository;
-    private final EnrollmentRepository enrollmentRepository;
-    private final ParentRepository parentRepository;
-    private final RusticiClient rusticiClient;
-    private final ChildRepository childRepository;
 
     /**
      * Get the current authenticated user's username
@@ -53,19 +52,31 @@ public class UserSubscriptionService {
      */
     @Transactional
     public UserSubscriptionResponse createUserSubscription(CreateUserSubscriptionRequest request) {
+        log.info("Creating new user subscription for user ID: {}", request.getUserId());
 
-        // 1️⃣ Validate user
-        Parent parent = parentRepository.findByExternalParentId(request.getUserId())
-                .orElseThrow(() -> new ResourceNotFoundException("Parent not found"));
+        // Verify user exists
+        User user = userRepository.findById(request.getUserId())
+                .orElseThrow(() -> new ResourceNotFoundException("User not found with ID: " + request.getUserId()));
 
-        User user = userRepository.findByParentId(parent.getId())
-                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
-
-        // 2️⃣ Validate plan
+        // Verify subscription plan exists
         SubscriptionPlan plan = subscriptionPlanRepository.findById(request.getPlanId())
-                .orElseThrow(() -> new ResourceNotFoundException("Plan not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Subscription plan not found with ID: " + request.getPlanId()));
 
-        // 3️⃣ Create subscription
+        if (Boolean.TRUE.equals(plan.getIsDeleted())) {
+            throw new IllegalArgumentException("Selected subscription plan is deleted");
+        }
+
+        // Check if user already has an active subscription
+        Optional<UserSubscription> existingSubscription = userSubscriptionRepository.findByUserId(request.getUserId());
+        if (existingSubscription.isPresent() && !Boolean.TRUE.equals(existingSubscription.get().getIsDeleted())) {
+            throw new IllegalArgumentException("User already has an active subscription");
+        }
+
+        // Validate dates
+        if (request.getEndDate().isBefore(request.getStartDate())) {
+            throw new IllegalArgumentException("End date cannot be before start date");
+        }
+
         UserSubscription subscription = new UserSubscription();
         subscription.setUser(user);
         subscription.setPlan(plan);
@@ -73,59 +84,15 @@ public class UserSubscriptionService {
         subscription.setEndDate(request.getEndDate());
         subscription.setStripeCustomerId(request.getStripeCustomerId());
         subscription.setStripeSubscriptionId(request.getStripeSubscriptionId());
-        subscription.setStatus("ACTIVE");
+        subscription.setStatus(request.getStatus() != null ? request.getStatus() : "ACTIVE");
+        subscription.setCreatedBy(getCurrentUsername());
         subscription.setIsDeleted(false);
 
-        userSubscriptionRepository.save(subscription);
+        UserSubscription savedSubscription = userSubscriptionRepository.save(subscription);
+        log.info("User subscription created successfully with ID: {}", savedSubscription.getId());
 
-        // 4️⃣ Create enrollments ONLY (NO SCORM)
-        if (plan.getCoursePackage() != null) {
-
-            List<Course> courses =
-                    courseRepository.findByCoursePackageIdAndIsDeletedFalse(
-                            plan.getCoursePackage().getId()
-                    );
-
-            for (Course course : courses) {
-
-                if (course.getCourseType() == CourseType.PARENT) {
-
-                    // Parent enrollment
-                    Enrollment enrollment = new Enrollment();
-                    enrollment.setCourse(course);
-                    enrollment.setParent(parent);
-                    enrollment.setLearnerType(LearnerType.PARENT_LEARNER);
-                    enrollment.setProgressPercentage(0);
-                    enrollment.setIsCompleted(false);
-
-                    enrollmentRepository.save(enrollment);
-
-                } else if (course.getCourseType() == CourseType.CHILD) {
-
-                    // Create enrollment for EACH child
-                    List<Child> children = childRepository.findByParentId(parent.getId());
-
-                    for (Child child : children) {
-
-                        Enrollment enrollment = new Enrollment();
-                        enrollment.setCourse(course);
-                        enrollment.setParent(parent);
-                        enrollment.setChild(child);
-                        enrollment.setLearnerType(LearnerType.CHILD_LEARNER);
-                        enrollment.setProgressPercentage(0);
-                        enrollment.setIsCompleted(false);
-
-                        enrollmentRepository.save(enrollment);
-                    }
-                }
-
-            }
-        }
-
-        return mapToResponse(subscription);
+        return mapToResponse(savedSubscription);
     }
-
-
 
     /**
      * Get all non-deleted user subscriptions

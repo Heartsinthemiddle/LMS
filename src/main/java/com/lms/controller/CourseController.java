@@ -7,8 +7,6 @@ import com.lms.dto.response.ApiResponse;
 import com.lms.dto.response.CourseResponse;
 import com.lms.dto.response.ImportJobStatus;
 import com.lms.entity.Course;
-import com.lms.entity.CourseProgress;
-import com.lms.entity.CourseType;
 import com.lms.repository.CourseRepository;
 import com.lms.service.CourseService;
 import com.lms.service.RusticiClient;
@@ -32,8 +30,6 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
-import java.util.Map;
-import java.util.UUID;
 
 @Slf4j
 @RestController
@@ -101,82 +97,48 @@ public class CourseController {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "Course not found")
     })
     @PostMapping(
-            value = "/scorm",
+            value = "/{id}/scorm",
             consumes = MediaType.MULTIPART_FORM_DATA_VALUE
     )
-    public ResponseEntity<Course> uploadScormCourse(
-            @RequestParam("file") MultipartFile file,
-            @RequestParam(value = "title", required = false) String title,
-            @RequestParam(value = "description", required = false) String description,
-            @RequestParam(value = "category", required = false) String category,
-            @RequestParam CourseType courseType
-            ) throws Exception {
+    public ResponseEntity<Course> uploadScorm(
+            @PathVariable Long id,
+            @RequestParam("file") MultipartFile file
+    ) throws IOException, InterruptedException {
 
-        // 1️⃣ Unique SCORM Course ID
-        String scormCourseId = "lms_scorm_" + UUID.randomUUID();
+        Course course = courseRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Course not found"));
 
-        // 2️⃣ Upload SCORM ZIP
+        // Upload SCORM (async job)
+        java.lang.String courseId = "lms-course-7" + course.getId();
         String importJobId = rusticiClient
-                .uploadScormZip(file, scormCourseId)
+                .uploadScormZip(file,courseId)
+                .subscribeOn(Schedulers.boundedElastic())
                 .block();
 
-        // 3️⃣ Wait for completion
         ImportJobStatus status;
         do {
-            status = rusticiClient.getImportJobStatus(importJobId).block();
-            Thread.sleep(1000);
+            status = rusticiClient.getImportJobStatus(importJobId)
+                    .block();
+            Thread.sleep(1000); // wait 1 second
         } while (!"COMPLETE".equalsIgnoreCase(status.getStatus()));
 
-        // 4️⃣ Launch URL (optional)
+        String scormCourseId = status.getCourseId(); // get actual course ID
+        String launchUrl = rusticiClient.buildLaunchUrl(scormCourseId,"learner_" + courseId );
 
+        // Fetch launch URL
+//        String launchUrl = rusticiClient
+//                .getLaunchUrl(scormCourseId, "learner_" + id)
+//                .subscribeOn(Schedulers.boundedElastic())
+//                .block();
 
-        // 5️⃣ Create Course ONLY
-        Course course = new Course();
-        course.setTitle(
-                title != null ? title : file.getOriginalFilename()
-        );
-        course.setDescription(description);
-        course.setCategory(category);
-
-        course.setCourseType(courseType);
         course.setIsScorm(true);
         course.setScormCourseId(scormCourseId);
-        course.setScormLaunchUrl(null);
-
-        course.setIsActive(true);
-        course.setCoursePackage(null); // explicitly optional
+        course.setScormLaunchUrl(launchUrl);
 
         courseRepository.save(course);
 
         return ResponseEntity.ok(course);
     }
-
-    @PostMapping("/{courseId}/start")
-    public ResponseEntity<ApiResponse<String>> startCourse(
-            @PathVariable Long courseId,
-            @RequestParam Long enrollmentId
-    ) {
-
-        String launchUrl = courseService.startCourse(courseId, enrollmentId);
-
-        return ResponseEntity.ok(
-                ApiResponse.success("Course launched", launchUrl)
-        );
-    }
-
-    @PostMapping("/{courseId}/track")
-    public ResponseEntity<ApiResponse<CourseProgress>> trackCourseProgress(
-            @PathVariable Long courseId,
-            @RequestParam Long enrollmentId
-    ) {
-        CourseProgress progress = courseService.updateCourseProgress(enrollmentId);
-        return ResponseEntity.ok(ApiResponse.success("Course progress updated", progress));
-    }
-
-
-
-
-
 
 
 

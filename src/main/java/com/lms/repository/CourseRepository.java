@@ -81,7 +81,5 @@ public interface CourseRepository extends JpaRepository<Course, Long> {
      * @return count of active courses
      */
     long countByCategoryAndIsActiveTrue(String category);
-
-    List<Course> findByCoursePackageIdAndIsDeletedFalse(Long id);
 }
 

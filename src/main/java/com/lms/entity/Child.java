@@ -26,8 +26,5 @@ public class Child extends BaseEntity{
     @JoinColumn(name = "parent_id", nullable = false)
     private Parent parent;
 
-    @OneToOne(mappedBy = "child", cascade = CascadeType.ALL)
-    private User userAccount;
-
 
 }

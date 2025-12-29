@@ -1,11 +1,9 @@
 package com.lms.service;
 
 import com.lms.dto.response.ImportJobStatus;
-import com.lms.dto.response.XapiStatementsResponse;
 import com.lms.util.MultipartInputStreamFileResource;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.*;
 import org.springframework.http.client.MultipartBodyBuilder;
 import org.springframework.stereotype.Service;
@@ -18,7 +16,6 @@ import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
 import java.io.IOException;
-import java.util.List;
 import java.util.Map;
 @Service
 @RequiredArgsConstructor
@@ -70,74 +67,6 @@ public class RusticiClient {
                 .doOnNext(status -> System.out.println("Import Job Status: " + status.getStatus()));
     }
 
-    public Mono<String> getLaunchLink(String registrationId) {
-        Map<String, Object> body = Map.of(
-                "redirectOnExitUrl", "http://127.0.0.1:8080/course",
-                "launchType", "iframe",
-                "expiry", 0,
-                "tracking", false,
-                "redirect", true,
-                "newWindow", false
-        );
-
-        return rusticiWebClient.post()
-                .uri("/registrations/{registrationId}/launchLink", registrationId)
-                .headers(h -> h.setBasicAuth(appId, secret))
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(body)
-                .retrieve()
-                .bodyToMono(Map.class)
-                .map(r -> (String) r.get("launchLink"));
-    }
-
-
-
-
-
-    public Mono<Void> createRegistration(
-            String courseId,
-            String registrationId,
-            String learnerId,
-            String firstName,
-            String lastName,
-            String email
-    ) {
-        Map<String, Object> payload = Map.of(
-                "courseId", courseId,
-                "registrationId", registrationId,
-                "learner", Map.of(
-                        "id", learnerId,
-                        "firstName", firstName,
-                        "lastName", lastName,
-                        "email", email
-                )
-        );
-
-        return rusticiWebClient.post()
-                .uri("/registrations")
-                .headers(h -> {
-                    h.setBasicAuth(appId, secret);
-                    h.setContentType(MediaType.APPLICATION_JSON);
-                })
-                .bodyValue(payload)
-                .retrieve()
-                .onStatus(
-                        HttpStatusCode::isError,
-                        response -> response.bodyToMono(String.class)
-                                .doOnNext(body ->
-                                        System.err.println("CREATE REG ERROR: " + body))
-                                .map(RuntimeException::new)
-                )
-                .bodyToMono(Void.class)
-                .doOnSuccess(v ->
-                        System.out.println("REGISTRATION CREATED SUCCESSFULLY"))
-                .doOnError(e ->
-                        System.err.println("REGISTRATION FAILED: " + e.getMessage()));
-    }
-
-
-
-
 
 
 
@@ -160,22 +89,13 @@ public class RusticiClient {
                 .map(response -> (String) response.get("launchLink"));
     }
 
-    public Mono<Map<String, Object>> getRegistrationProgress(String registrationId) {
-        return rusticiWebClient.get()
-                .uri("/registrations/{registrationId}/", registrationId)
-                .headers(h -> h.setBasicAuth(appId, secret))
-                .retrieve()
-                .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {});
-    }
-
-    // For registration statements
-    public Mono<List<Map<String, Object>>> getRegistrationStatements(String registrationId) {
-        return rusticiWebClient.get()
-                .uri("/registrations/{registrationId}/xAPIStatements", registrationId)
-                .headers(h -> h.setBasicAuth(appId, secret))
-                .retrieve()
-                .bodyToMono(XapiStatementsResponse.class)
-                .map(XapiStatementsResponse::getStatements);
+    public String buildLaunchUrl(String courseId, String learnerId) {
+        return String.format(
+                "https://cloud.scorm.com/sc/launch/%s?learnerId=%s&appId=%s",
+                courseId,
+                learnerId,
+                appId
+        );
     }
 
 }

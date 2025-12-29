@@ -3,9 +3,11 @@ package com.lms.service;
 import com.lms.dto.request.CreateCourseRequest;
 import com.lms.dto.request.UpdateCourseRequest;
 import com.lms.dto.response.CourseResponse;
-import com.lms.entity.*;
+import com.lms.entity.Course;
+import com.lms.entity.CoursePackage;
 import com.lms.exception.ResourceNotFoundException;
-import com.lms.repository.*;
+import com.lms.repository.CourseRepository;
+import com.lms.repository.CoursePackageRepository;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -24,10 +26,6 @@ public class CourseService {
 
     private final CourseRepository courseRepository;
     private final CoursePackageRepository coursePackageRepository;
-    private final EnrollmentRepository enrollmentRepository;
-    private final RusticiClient rusticiClient;
-    private final QuizIntractionRepository quizIntractionRepository;
-    private final CourseProgressRepository courseProgressRepository;
 
 
     private String getCurrentUser() {
@@ -167,133 +165,4 @@ public class CourseService {
                 .isDeleted(c.getIsDeleted())
                 .build();
     }
-
-    @Transactional
-    public String startCourse(Long courseId, Long enrollmentId) {
-
-
-
-        Enrollment enrollment = enrollmentRepository.findByIdAndCourseIdAndIsDeletedFalse(enrollmentId,courseId)
-                .orElseThrow(() -> new RuntimeException("Enrollment not found"));
-
-        Course course = enrollment.getCourse();
-
-        if (!Boolean.TRUE.equals(course.getIsScorm())) {
-            throw new IllegalStateException("Course is not a SCORM course");
-        }
-
-        // 🔑 Determine learner
-        String learnerId;
-        String firstName;
-        String email;
-
-        if (enrollment.getChild() != null) {
-            Child child = enrollment.getChild();
-            learnerId = "child_" + child.getId();
-            firstName = child.getName();
-            email = child.getUserName();
-        } else {
-            Parent user = enrollment.getParent();
-            learnerId = "parent_" + user.getId();
-            firstName = user.getUserName();
-            email = user.getUserEmail();
-        }
-
-        // 🔑 Registration ID
-        String registrationId =
-                course.getScormCourseId() + "_" + learnerId;
-
-        // 1️⃣ Create registration (idempotent)
-        rusticiClient.createRegistration(
-                course.getScormCourseId(),
-                registrationId,
-                learnerId,
-                firstName,
-                "Learner",
-                email
-        ).block();
-
-        // 2️⃣ Generate launch URL
-        String launchUrl =
-                rusticiClient.getLaunchLink(registrationId).block();
-
-        // 3️⃣ Save registration ID
-        enrollment.setScormRegistrationId(registrationId);
-        enrollment.setLearnerId(learnerId);
-        enrollmentRepository.save(enrollment);
-
-        return launchUrl;
-    }
-
-    @Transactional
-    public Map<String, Object> trackCourseProgress(Long enrollmentId) {
-        Enrollment enrollment = enrollmentRepository.findById(enrollmentId)
-                .orElseThrow(() -> new RuntimeException("Enrollment not found"));
-
-        String registrationId = enrollment.getScormRegistrationId();
-        if (registrationId == null) {
-            throw new IllegalStateException("SCORM registration not found for this enrollment");
-        }
-
-
-        Map<String, Object> progress = rusticiClient.getRegistrationProgress(registrationId).block();
-        List<Map<String, Object>> statements = rusticiClient.getRegistrationStatements(registrationId).block();
-
-        Map<String, Object> result = new HashMap<>();
-        result.put("progress", progress);
-        result.put("quizzes", statements);
-
-        return result;
-    }
-
-    @Transactional
-    public CourseProgress updateCourseProgress(Long enrollmentId) {
-    Enrollment enrollment = enrollmentRepository.findBYExactId(enrollmentId);
-        if (Objects.isNull(enrollment))
-            throw new IllegalStateException("Enrollment not found");
-
-        String registrationId = enrollment.getScormRegistrationId();
-        if (registrationId == null)
-            throw new IllegalStateException("SCORM registration not found");
-
-        // Fetch progress & statements
-        Map<String, Object> progressData = rusticiClient.getRegistrationProgress(registrationId).block();
-        List<Map<String, Object>> statements = rusticiClient.getRegistrationStatements(registrationId).block();
-
-        // Determine attempt number
-        List<CourseProgress> previousAttempts = courseProgressRepository.findByEnrollmentIdOrderByAttemptNumberDesc(enrollmentId);
-        int attemptNumber = previousAttempts.isEmpty() ? 1 : previousAttempts.get(0).getAttemptNumber() + 1;
-
-        // Save CourseProgress
-        CourseProgress progress = CourseProgress.builder()
-                .enrollment(enrollment)
-                .registrationId(registrationId)
-                .status((String) progressData.getOrDefault("completionStatus", "incomplete"))
-                .score(progressData.get("score") != null ? ((Number) progressData.get("score")).doubleValue() : null)
-                .suspendData((String) progressData.getOrDefault("suspendData", ""))
-                .cmiData(progressData.get("cmi") != null ? progressData.get("cmi").toString() : "")
-                .attemptNumber(attemptNumber)
-                .build();
-
-        courseProgressRepository.save(progress);
-
-        // Save QuizInteractions
-        statements.forEach(statement -> {
-            QuizInteraction quiz = QuizInteraction.builder()
-                    .courseProgress(progress)
-                    .interactionId((String) statement.get("id"))
-                    .type((String) statement.get("type"))
-                    .studentResponse((String) statement.get("studentResponse"))
-                    .correctResponses(statement.get("correctResponses") != null ? statement.get("correctResponses").toString() : "")
-                    .result((String) statement.get("result"))
-                    .description((String) statement.get("description"))
-                    .createdAt(LocalDateTime.now())
-                    .build();
-            quizIntractionRepository.save(quiz);
-        });
-
-        return progress;
-    }
-
-
 }
